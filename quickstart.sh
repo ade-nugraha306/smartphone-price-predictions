@@ -2,6 +2,8 @@
 set -e
 
 echo "🚀 Smartphone Price Predictor — Dev Runner"
+echo "Made by Ade, 2k25"
+echo ""
 
 if [[ ! -f "script/unix.sh" ]]; then
   echo "unix script not found"
