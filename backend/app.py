@@ -67,6 +67,13 @@ def low_end_gate(spec: dict):
         return 0
     return None
 
+def mid_cap_gate(spec, pred):
+    # Cegah lompat langsung ke flagship
+    if pred == 3:
+        if spec["ram"] <= 8192 and spec["pixel_count"] < (1440 * 3200):
+            return 2  # Upper-mid
+    return pred
+
 # ======================================================
 # Recommendation Utilities (NON-ML)
 # ======================================================
@@ -152,12 +159,27 @@ def cache_key(req: RecommendRequest):
         round(req.screen_size_inch, 1),
     )
 
+PRICE_SEGMENT_PRICE_RANGE = {
+    0: (0, 2_000_000),        # Low-end
+    1: (2_000_000, 4_000_000),
+    2: (4_000_000, 6_000_000),
+    3: (6_000_000, None),     # Flagship
+}
+
 @lru_cache(maxsize=128)
 def cached_recommend(key):
     segment, ram, battery, rear, front, screen = key
 
-    # filter recommendation dataset by segment (heuristic)
+    min_price, max_price = PRICE_SEGMENT_PRICE_RANGE[segment]
+
     df = df_reco.copy()
+    df = df[df["price_idr"] >= min_price]
+
+    if max_price is not None:
+        df = df[df["price_idr"] <= max_price]
+
+    if df.empty:
+        return []
 
     price_anchor = df["price_idr"].median()
 
@@ -176,6 +198,7 @@ def cached_recommend(key):
         price_anchor
     ).to_dict(orient="records")
 
+
 # ======================================================
 # API ENDPOINTS
 # ======================================================
@@ -190,6 +213,7 @@ def predict_price(req: PredictRequest):
     else:
         input_data = [[spec[f] for f in FEATURES]]
         pred = int(model.predict(input_data)[0])
+        pred = mid_cap_gate(spec, pred)
 
     return {
         "price_segment": pred,
@@ -221,6 +245,7 @@ def predict_and_recommend(req: PredictRequest):
     else:
         input_data = [[spec[f] for f in FEATURES]]
         pred = int(model.predict(input_data)[0])
+        pred = mid_cap_gate(spec, pred)
 
     # normalisasi untuk rekomendasi
     ram_gb = spec["ram"] / 1024
