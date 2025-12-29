@@ -107,7 +107,7 @@ class _PredictScreenState extends State<PredictScreen> {
       });
     } catch (e) {
       setState(() {
-        segmentLabel = "Gagal memproses";
+        segmentLabel = "Gagal memproses (${e.toString()})";
         segmentCategory = null;
         recommendations = [];
       });
