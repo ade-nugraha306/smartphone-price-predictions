@@ -17,13 +17,14 @@ class _PredictScreenState extends State<PredictScreen> {
     super.dispose();
   }
 
-
   void resetForm() {
     setState(() {
+      // reset state-driven widgets
       ram = 4096;
       battery = 4000;
       cores = 8;
 
+      // reset text fields
       pcCtrl.clear();
       fcCtrl.clear();
       clockCtrl.clear();
@@ -32,8 +33,6 @@ class _PredictScreenState extends State<PredictScreen> {
 
       result = null;
     });
-
-    _formKey.currentState?.reset();
   }
 
   double ram = 4096;       // MB
