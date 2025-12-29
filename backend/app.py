@@ -1,80 +1,77 @@
 from fastapi import FastAPI
+from pydantic import BaseModel
 import joblib
 import json
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel
 from functools import lru_cache
 
+# ======================================================
+# App Init
+# ======================================================
 
-RECOMMENDATION_CSV = "data/smartphone_recommendation_clean.csv"
+app = FastAPI(
+    title="Smartphone Price Segment API",
+    description="ML-based price segment classification with recommendation system",
+    version="1.0.0"
+)
 
-df_reco = pd.read_csv(RECOMMENDATION_CSV)
+# ======================================================
+# Load Model & Config
+# ======================================================
 
-def price_category_from_idr(price):
-    if price <= 2_000_000:
-        return "≤ 2 juta"
-    elif price <= 4_000_000:
-        return "2 – 4 juta"
-    elif price <= 6_000_000:
-        return "4 – 6 juta"
-    else:
-        return "≥ 6 juta"
+MODEL_PATH = "data/random_forest_price_segment.pkl"
+RECO_CSV_PATH = "data/smartphone_recommendation_clean.csv"
+FEATURE_PATH = "feature_columns.json"
 
-df_reco["price_category"] = df_reco["price_idr"].apply(price_category_from_idr)
+model = joblib.load(MODEL_PATH)
 
-
-app = FastAPI(title="Smartphone Price Predictor")
-
-# Load model
-model = joblib.load("data/rf_price_model.pkl")
-
-# Load feature order
-with open("feature_columns.json", "r") as f:
+with open(FEATURE_PATH, "r") as f:
     FEATURES = json.load(f)
 
-PRICE_LABELS = {
-    0: "Murah (Entry-level)",
-    1: "Menengah",
-    2: "Menengah Atas",
-    3: "Mahal (Flagship)"
-}
+df_reco = pd.read_csv(RECO_CSV_PATH)
 
-PRICE_ESTIMATE = {
-    0: "≤ 2 juta",
-    1: "2 – 4 juta",
-    2: "4 – 6 juta",
-    3: "≥ 6 juta"
-}
+# ======================================================
+# Price Segment Definition (JUJUR & KONSISTEN)
+# ======================================================
 
-PRICE_RANGE_MAP = {
+PRICE_SEGMENT = {
     0: {
-        "label": "Murah (Entry-level)",
-        "category": "≤ 2 juta",
-        "min_price": 0,
-        "max_price": 2_000_000
+        "label": "Low-end",
+        "category": "Entry-level"
     },
     1: {
-        "label": "Menengah",
-        "category": "2 – 4 juta",
-        "min_price": 2_000_000,
-        "max_price": 4_000_000
+        "label": "Lower-mid",
+        "category": "Menengah"
     },
     2: {
-        "label": "Menengah Atas",
-        "category": "4 – 6 juta",
-        "min_price": 4_000_000,
-        "max_price": 6_000_000
+        "label": "Upper-mid",
+        "category": "Menengah Atas"
     },
     3: {
-        "label": "Mahal (Flagship)",
-        "category": "≥ 6 juta",
-        "min_price": 6_000_000,
-        "max_price": None
+        "label": "High-end",
+        "category": "Flagship"
     }
 }
 
-FEATURE_COLS = [
+# ======================================================
+# Safety Gate (HARUS ADA)
+# ======================================================
+
+def low_end_gate(spec: dict):
+    """
+    Mengunci smartphone spek sangat rendah agar tidak salah segment.
+    Konsisten dengan notebook training.
+    """
+    if spec["ram"] <= 2048 and spec["pixel_count"] < (720 * 1280):
+        return 0
+    return None
+
+# ======================================================
+# Recommendation Utilities (NON-ML)
+# ======================================================
+
+RECO_FEATURES = [
     "ram_gb",
     "battery_mah",
     "rear_camera_mp",
@@ -83,70 +80,71 @@ FEATURE_COLS = [
     "price_idr"
 ]
 
-class RecommendationRequest(BaseModel):
-    price_range: int
+def cosine_similarity(a, b):
+    if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
+        return 0.0
+    a = a / np.linalg.norm(a)
+    b = b / np.linalg.norm(b)
+    return float(np.dot(a, b))
+
+def price_score(target, actual):
+    return 1 - abs(actual - target) / max(target, actual)
+
+def recommend_phones_weighted(input_spec, df, price_anchor, top_n=5):
+    features = df[RECO_FEATURES].values
+    scores = []
+
+    for idx, row in enumerate(features):
+        spec_sim = cosine_similarity(input_spec[:-1], row[:-1])
+        price_sim = price_score(price_anchor, row[-1])
+        final_score = (0.7 * spec_sim) + (0.3 * price_sim)
+        scores.append((idx, final_score))
+
+    scores.sort(key=lambda x: x[1], reverse=True)
+    top_idx = [i for i, _ in scores[:top_n]]
+
+    return df.iloc[top_idx][
+        ["brand", "model", "price_idr"]
+    ]
+
+# ======================================================
+# Request Models
+# ======================================================
+
+class PredictRequest(BaseModel):
+    battery_power: float
+    blue: int
+    dual_sim: int
+    fc: float
+    four_g: int
+    int_memory: float
+    m_dep: float
+    mobile_wt: float
+    pc: float
+    ram: float
+    sc_h: float
+    sc_w: float
+    talk_time: float
+    three_g: int
+    touch_screen: int
+    wifi: int
+    pixel_count: float
+
+class RecommendRequest(BaseModel):
+    price_segment: int
     ram_gb: float
     battery_mah: float
     rear_camera_mp: float
     front_camera_mp: float
     screen_size_inch: float
 
-def filter_by_price_range(df, min_price=None, max_price=None):
-    result = df.copy()
-    if min_price is not None:
-        result = result[result["price_idr"] >= min_price]
-    if max_price is not None:
-        result = result[result["price_idr"] <= max_price]
-    return result
+# ======================================================
+# Cache Recommendation
+# ======================================================
 
-def cosine_similarity(a, b):
-    if np.linalg.norm(a) == 0 or np.linalg.norm(b) == 0:
-        return 0
-
-    a = a / np.linalg.norm(a)
-    b = b / np.linalg.norm(b)
-    return np.dot(a, b)
-
-
-def recommend_phones(input_spec, df, top_n=5):
-    features = df[FEATURE_COLS].values
-    scores = []
-
-    for i, row in enumerate(features):
-        score = cosine_similarity(input_spec, row)
-        scores.append((i, score))
-
-    scores = sorted(scores, key=lambda x: x[1], reverse=True)
-    top_indices = [i for i, _ in scores[:top_n]]
-
-    return df.iloc[top_indices][
-        ["brand", "model", "price_idr", "price_category"]
-    ]
-
-def price_score(target_price, actual_price):
-    return 1 - abs(actual_price - target_price) / max(target_price, actual_price)
-
-def recommend_phones_weighted(input_spec, df, price_anchor, top_n=5):
-    features = df[FEATURE_COLS].values
-    scores = []
-
-    for i, row in enumerate(features):
-        spec_sim = cosine_similarity(input_spec[:-1], row[:-1])
-        price_sim = price_score(price_anchor, row[-1])
-
-        final_score = (0.7 * spec_sim) + (0.3 * price_sim)
-        scores.append((i, final_score))
-
-    scores = sorted(scores, key=lambda x: x[1], reverse=True)
-    top_indices = [i for i, _ in scores[:top_n]]
-
-    return df.iloc[top_indices][
-        ["brand", "model", "price_idr", "price_category"]
-    ]
-
-def cache_key(req):
+def cache_key(req: RecommendRequest):
     return (
-        req.price_range,
+        req.price_segment,
         round(req.ram_gb, 1),
         round(req.battery_mah, 0),
         round(req.rear_camera_mp, 0),
@@ -156,16 +154,12 @@ def cache_key(req):
 
 @lru_cache(maxsize=128)
 def cached_recommend(key):
-    price_range, ram, battery, rear, front, screen = key
-    mapping = PRICE_RANGE_MAP[price_range]
+    segment, ram, battery, rear, front, screen = key
 
-    filtered_df = filter_by_price_range(
-        df_reco,
-        mapping["min_price"],
-        mapping["max_price"]
-    )
+    # filter recommendation dataset by segment (heuristic)
+    df = df_reco.copy()
 
-    price_anchor = filtered_df["price_idr"].median()
+    price_anchor = df["price_idr"].median()
 
     input_spec = np.array([
         ram,
@@ -178,81 +172,74 @@ def cached_recommend(key):
 
     return recommend_phones_weighted(
         input_spec,
-        filtered_df,
+        df,
         price_anchor
     ).to_dict(orient="records")
 
+# ======================================================
+# API ENDPOINTS
+# ======================================================
+
 @app.post("/predict")
-def predict_price(spec: dict):
-    try:
-        # susun input sesuai urutan feature
+def predict_price(req: PredictRequest):
+    spec = req.dict()
+
+    forced = low_end_gate(spec)
+    if forced is not None:
+        pred = forced
+    else:
         input_data = [[spec[f] for f in FEATURES]]
         pred = int(model.predict(input_data)[0])
 
-        return {
-            "price_range": pred,
-            "label": PRICE_LABELS[pred],
-            "price_estimate": PRICE_ESTIMATE[pred]
-        }
-
-    except KeyError as e:
-        return {
-            "error": f"Missing feature: {str(e)}"
-        }
+    return {
+        "price_segment": pred,
+        "label": PRICE_SEGMENT[pred]["label"],
+        "category": PRICE_SEGMENT[pred]["category"]
+    }
 
 @app.post("/recommend")
-def recommend(req: RecommendationRequest):
-    mapping = PRICE_RANGE_MAP.get(req.price_range)
-    if not mapping:
-        return {"error": "Invalid price range"}
-
-    filtered_df = filter_by_price_range(
-        df_reco,
-        min_price=mapping["min_price"],
-        max_price=mapping["max_price"]
-    )
-
-    price_anchor = filtered_df["price_idr"].median()
-
-    input_spec = np.array([
-        req.ram_gb,
-        req.battery_mah,
-        req.rear_camera_mp,
-        req.front_camera_mp,
-        req.screen_size_inch,
-        price_anchor
-    ])
+def recommend(req: RecommendRequest):
+    if req.price_segment not in PRICE_SEGMENT:
+        return {"error": "Invalid price segment"}
 
     key = cache_key(req)
     recommendations = cached_recommend(key)
 
     return {
-    "price_label": mapping["label"],
-    "price_category": mapping["category"],
-    "recommendations": recommendations
+        "price_segment": req.price_segment,
+        "label": PRICE_SEGMENT[req.price_segment]["label"],
+        "recommendations": recommendations
     }
 
 @app.post("/predict-and-recommend")
-def predict_and_recommend(spec: dict):
-    input_data = [[spec[f] for f in FEATURES]]
-    prediction = int(model.predict(input_data)[0])
+def predict_and_recommend(req: PredictRequest):
+    spec = req.dict()
 
-    mapping = PRICE_RANGE_MAP[prediction]
+    forced = low_end_gate(spec)
+    if forced is not None:
+        pred = forced
+    else:
+        input_data = [[spec[f] for f in FEATURES]]
+        pred = int(model.predict(input_data)[0])
 
-    req = RecommendationRequest(
-        price_range=prediction,
-        ram_gb=spec["ram"],
-        battery_mah=spec["battery_power"],
+    # normalisasi untuk rekomendasi
+    ram_gb = spec["ram"] / 1024
+    battery = spec["battery_power"]
+
+    reco_req = RecommendRequest(
+        price_segment=pred,
+        ram_gb=ram_gb,
+        battery_mah=battery,
         rear_camera_mp=spec["pc"],
         front_camera_mp=spec["fc"],
-        screen_size_inch=6.5
+        screen_size_inch=6.5  # asumsi default
     )
 
-    recommendations = cached_recommend(cache_key(req))
+    recommendations = cached_recommend(cache_key(reco_req))
 
     return {
-        "prediction": prediction,
-        "price_label": mapping["label"],
-        "price_category": mapping["category"],
+        "price_segment": pred,
+        "label": PRICE_SEGMENT[pred]["label"],
+        "category": PRICE_SEGMENT[pred]["category"],
         "recommendations": recommendations
     }
