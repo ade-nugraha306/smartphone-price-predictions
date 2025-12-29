@@ -2,6 +2,16 @@
 
 ---
 
+## ToC
+- [What is the project about?](#what-is-this)
+- [Why this app been created?](#why-was-this-app-created)
+- [Purpose of this app?](#purpose-of-this-application)
+- [How the app work?](#how-does-this-app-work)
+- [How to run?](#how-to-run-the-app)
+- [Changelog](#changelog)
+
+---
+
 ## What is this?
 
 **Smartphone Price Predict** is an application that predicts the **price range of a smartphone** (not the exact price) by classifying devices into the following categories:
@@ -74,3 +84,8 @@ chmod +x quickstart.sh
 ```
 
 The script will automatically executing python and compile flutter, if one of those (wether Flutter or Python) missing, the script will abort imediately.
+
+--- 
+
+## Changelog
+See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes.
