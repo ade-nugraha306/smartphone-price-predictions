@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../services/api_services.dart';
 
 class PredictScreen extends StatefulWidget {
@@ -7,11 +8,12 @@ class PredictScreen extends StatefulWidget {
 }
 
 class _PredictScreenState extends State<PredictScreen> {
+  List<dynamic> recommendations = [];
+
   @override
   void dispose() {
     pcCtrl.dispose();
     fcCtrl.dispose();
-    clockCtrl.dispose();
     pxWCtrl.dispose();
     pxHCtrl.dispose();
     super.dispose();
@@ -19,36 +21,55 @@ class _PredictScreenState extends State<PredictScreen> {
 
   void resetForm() {
     setState(() {
-      // reset state-driven widgets
       ram = 4096;
       battery = 4000;
-      cores = 8;
+      performanceLevel = 'sedang'; // reset ke default
 
-      // reset text fields
       pcCtrl.clear();
       fcCtrl.clear();
-      clockCtrl.clear();
       pxWCtrl.clear();
       pxHCtrl.clear();
 
       result = null;
+      recommendations = [];
     });
   }
 
-  double ram = 4096;       // MB
-  double battery = 4000;  // mAh
-  int cores = 8;
-  
+  double ram = 4096;
+  double battery = 4000;
+  String performanceLevel = 'sedang'; // ganti cores & clock dengan ini
+
+  final currencyFormatter = NumberFormat.currency(
+    locale: 'id_ID',
+    symbol: 'Rp ',
+    decimalDigits: 0,
+  );
+
   final _formKey = GlobalKey<FormState>();
 
   final pcCtrl = TextEditingController();
   final fcCtrl = TextEditingController();
-  final clockCtrl = TextEditingController();
   final pxWCtrl = TextEditingController();
   final pxHCtrl = TextEditingController();
 
   String? result;
   bool loading = false;
+
+  // Fungsi helper untuk convert performance level ke cores & clock speed
+  Map<String, dynamic> getPerformanceSpecs(String level) {
+    switch (level) {
+      case 'hemat':
+        return {'cores': 4, 'clock_speed': 1.5};
+      case 'sedang':
+        return {'cores': 8, 'clock_speed': 2.0};
+      case 'tinggi':
+        return {'cores': 8, 'clock_speed': 2.5};
+      case 'maksimal':
+        return {'cores': 12, 'clock_speed': 3.0};
+      default:
+        return {'cores': 8, 'clock_speed': 2.0};
+    }
+  }
 
   String? _requiredNumber(
     String? v, {
@@ -63,32 +84,25 @@ class _PredictScreenState extends State<PredictScreen> {
     return null;
   }
 
-  String? _requiredDouble(
-    String? v, {
-    double? min,
-    double? max,
-  }) {
-    if (v == null || v.isEmpty) return "Wajib diisi";
-    final n = double.tryParse(v);
-    if (n == null) return "Harus berupa angka";
-    if (min != null && n < min) return "Minimal $min";
-    if (max != null && n > max) return "Maksimal $max";
-    return null;
-  }
-
   Future<void> submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => loading = true);
+    setState(() {
+      loading = true;
+      result = null;
+      recommendations = [];
+    });
+
+    final perfSpecs = getPerformanceSpecs(performanceLevel);
 
     final spec = {
       "battery_power": battery.toInt(),
-      "clock_speed": double.parse(clockCtrl.text),
+      "clock_speed": perfSpecs['clock_speed'],
       "fc": int.parse(fcCtrl.text),
       "int_memory": 128,
       "m_dep": 0.5,
       "mobile_wt": 180,
-      "n_cores": cores,
+      "n_cores": perfSpecs['cores'],
       "pc": int.parse(pcCtrl.text),
       "px_height": int.parse(pxHCtrl.text),
       "px_width": int.parse(pxWCtrl.text),
@@ -101,13 +115,18 @@ class _PredictScreenState extends State<PredictScreen> {
     };
 
     try {
-      final res = await ApiService.predict(spec);
+      final res = await ApiService.predictAndRecommend(spec);
+
       setState(() {
         result =
-            "${res['label']}\nEstimasi Harga: ${res['price_estimate']}";
+            "${res['price_label']}\nEstimasi Harga: ${res['price_category']}";
+        recommendations = res['recommendations'] ?? [];
       });
     } catch (e) {
-      setState(() => result = "Gagal memprediksi");
+      setState(() {
+        result = "Gagal memprediksi";
+        recommendations = [];
+      });
     }
 
     setState(() => loading = false);
@@ -162,24 +181,101 @@ class _PredictScreenState extends State<PredictScreen> {
     );
   }
 
-  Widget coreDropdown() {
+  Widget performanceSelector() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
-      child: DropdownButtonFormField<int>(
-        value: cores,
-        items: [2, 4, 6, 8, 12, 16]
-            .map((c) => DropdownMenuItem(
-                  value: c,
-                  child: Text("$c cores"),
-                ))
-            .toList(),
-        onChanged: (v) => setState(() => cores = v!),
-        decoration: const InputDecoration(
-          labelText: "CPU Cores",
-          helperText: "Jumlah core prosesor",
-          border: OutlineInputBorder(),
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "Performa HP",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            "Pilih tingkat performa yang diinginkan",
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _performanceChip(
+                'hemat',
+                'Hemat Daya',
+                'Untuk penggunaan ringan',
+                Icons.eco,
+                Colors.green,
+              ),
+              _performanceChip(
+                'sedang',
+                'Standar',
+                'Cocok untuk harian',
+                Icons.phone_android,
+                Colors.blue,
+              ),
+              _performanceChip(
+                'tinggi',
+                'Kencang',
+                'Gaming & multitasking',
+                Icons.speed,
+                Colors.orange,
+              ),
+              _performanceChip(
+                'maksimal',
+                'Maksimal',
+                'Performa tertinggi',
+                Icons.rocket_launch,
+                Colors.red,
+              ),
+            ],
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _performanceChip(
+    String value,
+    String label,
+    String desc,
+    IconData icon,
+    Color color,
+  ) {
+    final isSelected = performanceLevel == value;
+    return FilterChip(
+      selected: isSelected,
+      label: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 20, color: isSelected ? Colors.white : color),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+              color: isSelected ? Colors.white : Colors.black87,
+            ),
+          ),
+          Text(
+            desc,
+            style: TextStyle(
+              fontSize: 10,
+              color: isSelected ? Colors.white70 : Colors.grey,
+            ),
+          ),
+        ],
+      ),
+      onSelected: (selected) {
+        if (selected) {
+          setState(() => performanceLevel = value);
+        }
+      },
+      selectedColor: color,
+      padding: const EdgeInsets.all(12),
+      showCheckmark: false,
     );
   }
 
@@ -203,7 +299,7 @@ class _PredictScreenState extends State<PredictScreen> {
                 onChanged: (v) => setState(() => ram = v),
               ),
               sliderField(
-                label: "Battery",
+                label: "Kapasitas Baterai",
                 value: battery,
                 min: 2000,
                 max: 7000,
@@ -215,17 +311,11 @@ class _PredictScreenState extends State<PredictScreen> {
                   validator: (v) => _requiredNumber(v, min: 2, max: 200)),
               field("Kamera Depan (MP)", fcCtrl,
                   validator: (v) => _requiredNumber(v, min: 0, max: 64)),
-              coreDropdown(),
-              field("Clock Speed (GHz)", clockCtrl,
-                  type: const TextInputType.numberWithOptions(decimal: true),
-                  validator: (v) =>
-                      _requiredDouble(v, min: 0.5, max: 5.0)),
+              performanceSelector(),
               field("Resolusi Lebar (px)", pxWCtrl,
-                  validator: (v) =>
-                      _requiredNumber(v, min: 480, max: 4000)),
+                  validator: (v) => _requiredNumber(v, min: 480, max: 4000)),
               field("Resolusi Tinggi (px)", pxHCtrl,
-                  validator: (v) =>
-                      _requiredNumber(v, min: 800, max: 5000)),
+                  validator: (v) => _requiredNumber(v, min: 800, max: 5000)),
 
               const SizedBox(height: 16),
 
@@ -258,9 +348,40 @@ class _PredictScreenState extends State<PredictScreen> {
                     padding: const EdgeInsets.all(16),
                     child: Text(
                       result!,
-                      style: const TextStyle(fontSize: 18),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
+                ),
+
+              if (recommendations.isNotEmpty)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    const Text(
+                      "Rekomendasi Smartphone",
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    ...recommendations.map((hp) {
+                      return Card(
+                        child: ListTile(
+                          title: Text("${hp['brand']} ${hp['model']}"),
+                          subtitle: Text(
+                            "Harga: ${currencyFormatter.format(hp['price_idr'])}\n"
+                            "Kategori: ${hp['price_category']}",
+                          ),
+                        ),
+                      );
+                    }),
+                  ],
                 ),
             ],
           ),

@@ -19,4 +19,19 @@ class ApiService {
       throw Exception("Gagal mengambil prediksi");
     }
   }
+  
+  static Future<Map<String, dynamic>> predictAndRecommend(
+      Map<String, dynamic> spec) async {
+    final res = await http.post(
+      Uri.parse("$baseUrl/predict-and-recommend"),
+      headers: {"Content-Type": "application/json"},
+      body: jsonEncode(spec),
+    );
+
+    if (res.statusCode != 200) {
+      throw Exception("Failed to fetch prediction");
+    }
+
+    return jsonDecode(res.body);
+  }
 }
