@@ -1,19 +1,19 @@
 class PredictionResult {
-  final int priceRange;
+  final int priceSegment;
   final String label;
-  final String priceEstimate;
+  final String category;
 
   PredictionResult({
-    required this.priceRange,
+    required this.priceSegment,
     required this.label,
-    required this.priceEstimate,
+    required this.category,
   });
 
   factory PredictionResult.fromJson(Map<String, dynamic> json) {
     return PredictionResult(
-      priceRange: json['price_range'],
+      priceSegment: json['price_segment'],
       label: json['label'],
-      priceEstimate: json['price_estimate'],
+      category: json['category'],
     );
   }
 }

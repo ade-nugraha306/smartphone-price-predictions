@@ -8,7 +8,28 @@ class PredictScreen extends StatefulWidget {
 }
 
 class _PredictScreenState extends State<PredictScreen> {
+  final _formKey = GlobalKey<FormState>();
+
+  // Controllers
+  final pcCtrl = TextEditingController();
+  final fcCtrl = TextEditingController();
+  final pxWCtrl = TextEditingController();
+  final pxHCtrl = TextEditingController();
+
+  // State
+  double ram = 4096;
+  double battery = 4000;
+  bool loading = false;
+
+  String? segmentLabel;
+  String? segmentCategory;
   List<dynamic> recommendations = [];
+
+  final currencyFormatter = NumberFormat.currency(
+    locale: 'id_ID',
+    symbol: 'Rp ',
+    decimalDigits: 0,
+  );
 
   @override
   void dispose() {
@@ -23,59 +44,17 @@ class _PredictScreenState extends State<PredictScreen> {
     setState(() {
       ram = 4096;
       battery = 4000;
-      performanceLevel = 'sedang'; // reset ke default
-
       pcCtrl.clear();
       fcCtrl.clear();
       pxWCtrl.clear();
       pxHCtrl.clear();
-
-      result = null;
+      segmentLabel = null;
+      segmentCategory = null;
       recommendations = [];
     });
   }
 
-  double ram = 4096;
-  double battery = 4000;
-  String performanceLevel = 'sedang'; // ganti cores & clock dengan ini
-
-  final currencyFormatter = NumberFormat.currency(
-    locale: 'id_ID',
-    symbol: 'Rp ',
-    decimalDigits: 0,
-  );
-
-  final _formKey = GlobalKey<FormState>();
-
-  final pcCtrl = TextEditingController();
-  final fcCtrl = TextEditingController();
-  final pxWCtrl = TextEditingController();
-  final pxHCtrl = TextEditingController();
-
-  String? result;
-  bool loading = false;
-
-  // Fungsi helper untuk convert performance level ke cores & clock speed
-  Map<String, dynamic> getPerformanceSpecs(String level) {
-    switch (level) {
-      case 'hemat':
-        return {'cores': 4, 'clock_speed': 1.5};
-      case 'sedang':
-        return {'cores': 8, 'clock_speed': 2.0};
-      case 'tinggi':
-        return {'cores': 8, 'clock_speed': 2.5};
-      case 'maksimal':
-        return {'cores': 12, 'clock_speed': 3.0};
-      default:
-        return {'cores': 8, 'clock_speed': 2.0};
-    }
-  }
-
-  String? _requiredNumber(
-    String? v, {
-    int? min,
-    int? max,
-  }) {
+  String? _requiredNumber(String? v, {int? min, int? max}) {
     if (v == null || v.isEmpty) return "Wajib diisi";
     final n = int.tryParse(v);
     if (n == null) return "Harus berupa angka";
@@ -89,42 +68,47 @@ class _PredictScreenState extends State<PredictScreen> {
 
     setState(() {
       loading = true;
-      result = null;
+      segmentLabel = null;
+      segmentCategory = null;
       recommendations = [];
     });
 
-    final perfSpecs = getPerformanceSpecs(performanceLevel);
+    final pxWidth = int.parse(pxWCtrl.text);
+    final pxHeight = int.parse(pxHCtrl.text);
+    final pixelCount = pxWidth * pxHeight;
 
     final spec = {
       "battery_power": battery.toInt(),
-      "clock_speed": perfSpecs['clock_speed'],
+      "blue": 1,
+      "dual_sim": 1,
       "fc": int.parse(fcCtrl.text),
+      "four_g": 1,
       "int_memory": 128,
       "m_dep": 0.5,
       "mobile_wt": 180,
-      "n_cores": perfSpecs['cores'],
       "pc": int.parse(pcCtrl.text),
-      "px_height": int.parse(pxHCtrl.text),
-      "px_width": int.parse(pxWCtrl.text),
       "ram": ram.toInt(),
       "sc_h": 6,
       "sc_w": 3,
       "talk_time": 20,
+      "three_g": 1,
       "touch_screen": 1,
-      "wifi": 1
+      "wifi": 1,
+      "pixel_count": pixelCount
     };
 
     try {
       final res = await ApiService.predictAndRecommend(spec);
 
       setState(() {
-        result =
-            "${res['price_label']}\nEstimasi Harga: ${res['price_category']}";
-        recommendations = res['recommendations'] ?? [];
+        segmentLabel = res["label"];
+        segmentCategory = res["category"];
+        recommendations = res["recommendations"] ?? [];
       });
     } catch (e) {
       setState(() {
-        result = "Gagal memprediksi";
+        segmentLabel = "Gagal memproses";
+        segmentCategory = null;
         recommendations = [];
       });
     }
@@ -132,21 +116,17 @@ class _PredictScreenState extends State<PredictScreen> {
     setState(() => loading = false);
   }
 
-  Widget field(
-    String label,
-    TextEditingController c, {
-    String? Function(String?)? validator,
-    TextInputType type = TextInputType.number,
-  }) {
+  Widget field(String label, TextEditingController c,
+      {String? Function(String?)? validator}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
         controller: c,
-        keyboardType: type,
+        keyboardType: TextInputType.number,
         validator: validator,
         decoration: InputDecoration(
           labelText: label,
-          border: OutlineInputBorder(),
+          border: const OutlineInputBorder(),
         ),
       ),
     );
@@ -173,7 +153,6 @@ class _PredictScreenState extends State<PredictScreen> {
             min: min,
             max: max,
             divisions: divisions,
-            label: value.toInt().toString(),
             onChanged: onChanged,
           ),
         ],
@@ -181,108 +160,12 @@ class _PredictScreenState extends State<PredictScreen> {
     );
   }
 
-  Widget performanceSelector() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "Performa HP",
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            "Pilih tingkat performa yang diinginkan",
-            style: TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _performanceChip(
-                'hemat',
-                'Hemat Daya',
-                'Untuk penggunaan ringan',
-                Icons.eco,
-                Colors.green,
-              ),
-              _performanceChip(
-                'sedang',
-                'Standar',
-                'Cocok untuk harian',
-                Icons.phone_android,
-                Colors.blue,
-              ),
-              _performanceChip(
-                'tinggi',
-                'Kencang',
-                'Gaming & multitasking',
-                Icons.speed,
-                Colors.orange,
-              ),
-              _performanceChip(
-                'maksimal',
-                'Maksimal',
-                'Performa tertinggi',
-                Icons.rocket_launch,
-                Colors.red,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _performanceChip(
-    String value,
-    String label,
-    String desc,
-    IconData icon,
-    Color color,
-  ) {
-    final isSelected = performanceLevel == value;
-    return FilterChip(
-      selected: isSelected,
-      label: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 20, color: isSelected ? Colors.white : color),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-              color: isSelected ? Colors.white : Colors.black87,
-            ),
-          ),
-          Text(
-            desc,
-            style: TextStyle(
-              fontSize: 10,
-              color: isSelected ? Colors.white70 : Colors.grey,
-            ),
-          ),
-        ],
-      ),
-      onSelected: (selected) {
-        if (selected) {
-          setState(() => performanceLevel = value);
-        }
-      },
-      selectedColor: color,
-      padding: const EdgeInsets.all(12),
-      showCheckmark: false,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Prediksi Harga Smartphone")),
+      appBar: AppBar(
+        title: const Text("Klasifikasi Segment Harga Smartphone"),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
@@ -311,14 +194,11 @@ class _PredictScreenState extends State<PredictScreen> {
                   validator: (v) => _requiredNumber(v, min: 2, max: 200)),
               field("Kamera Depan (MP)", fcCtrl,
                   validator: (v) => _requiredNumber(v, min: 0, max: 64)),
-              performanceSelector(),
               field("Resolusi Lebar (px)", pxWCtrl,
                   validator: (v) => _requiredNumber(v, min: 480, max: 4000)),
               field("Resolusi Tinggi (px)", pxHCtrl,
                   validator: (v) => _requiredNumber(v, min: 800, max: 5000)),
-
               const SizedBox(height: 16),
-
               Row(
                 children: [
                   Expanded(
@@ -338,20 +218,31 @@ class _PredictScreenState extends State<PredictScreen> {
                   ),
                 ],
               ),
-
               const SizedBox(height: 24),
 
-              if (result != null)
+              if (segmentLabel != null)
                 Card(
                   elevation: 3,
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Text(
-                      result!,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Segment Harga",
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold)),
+                        Text(segmentLabel!,
+                            style: const TextStyle(fontSize: 18)),
+                        const SizedBox(height: 8),
+                        Text("Kategori Estimasi"),
+                        Text(segmentCategory ?? "-"),
+                        const SizedBox(height: 12),
+                        const Text(
+                          "Catatan: Estimasi bersifat indikatif berdasarkan segment, bukan harga pasar.",
+                          style:
+                              TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -363,20 +254,16 @@ class _PredictScreenState extends State<PredictScreen> {
                     const SizedBox(height: 16),
                     const Text(
                       "Rekomendasi Smartphone",
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 8),
-
                     ...recommendations.map((hp) {
                       return Card(
                         child: ListTile(
                           title: Text("${hp['brand']} ${hp['model']}"),
                           subtitle: Text(
-                            "Harga: ${currencyFormatter.format(hp['price_idr'])}\n"
-                            "Kategori: ${hp['price_category']}",
+                            "Referensi harga: ${currencyFormatter.format(hp['price_idr'])}",
                           ),
                         ),
                       );
