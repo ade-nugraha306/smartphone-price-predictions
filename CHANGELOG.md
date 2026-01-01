@@ -7,7 +7,7 @@ and this project adheres to semantic versioning principles.
 
 ---
 
-## [1.01] - 2025-12-29
+## [1.01-pre-release] - 2025-12-29
 ### Added
 - Hybrid **price segment classification API** using Random Forest
 - **Safety gate** for low-end devices to prevent misclassification
